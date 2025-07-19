@@ -2,7 +2,8 @@ from fastmcp import FastMCP
 import datetime
 import pytz
 import os
-from typing import Dict, Union, Optional, Literal
+import re
+from typing import Dict, Union, Optional, Literal, Tuple
 from datetime import datetime, timedelta
 
 mcp = FastMCP(
@@ -16,9 +17,18 @@ To help you make computations about time, you have multiple other tools:
 - add_time(): Add/subtract duration from a timestamp
 - timestamp_context(): Get contextual info about a timestamp
 - format_duration(): Format seconds into readable text
+- parse_natural_time(): Parse natural language time expressions like "tomorrow at 3pm" or "in 2 hours"
 
 IMPORTANT: All timestamps must use format "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD" for dates only. 
-Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing."""
+Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing.
+
+For natural language parsing, use parse_natural_time() which supports:
+- Relative days: "today", "tomorrow", "yesterday"
+- Weekdays: "next tuesday", "last friday", "this monday"  
+- Relative time: "in 3 hours", "2 days ago"
+- Time of day: "3pm", "noon", "midnight"
+- Combined: "tomorrow at 3pm", "next monday at noon"
+"""
 )
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
@@ -64,6 +74,168 @@ def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_Yo
         f"Expected format: 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'. "
         f"Examples: '2024-01-15 14:30:00' or '2024-01-15'"
     )
+
+def parse_relative_day(text: str, base_date: datetime) -> Optional[datetime]:
+    """
+    Parse relative day references like 'today', 'tomorrow', 'next tuesday'.
+    Returns None if no match found.
+    """
+    text_lower = text.lower().strip()
+    
+    # Simple relative days
+    if text_lower == 'today':
+        return base_date
+    elif text_lower == 'tomorrow':
+        return base_date + timedelta(days=1)
+    elif text_lower == 'yesterday':
+        return base_date - timedelta(days=1)
+    
+    # Days of week
+    weekdays = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6
+    }
+    
+    # Check for "next <weekday>"
+    next_match = re.match(r'^next\s+(\w+)$', text_lower)
+    if next_match:
+        day_name = next_match.group(1)
+        if day_name in weekdays:
+            target_weekday = weekdays[day_name]
+            current_weekday = base_date.weekday()
+            days_ahead = (target_weekday - current_weekday) % 7
+            if days_ahead == 0:
+                days_ahead = 7  # "next monday" on a monday means next week
+            return base_date + timedelta(days=days_ahead)
+    
+    # Check for "last <weekday>"
+    last_match = re.match(r'^last\s+(\w+)$', text_lower)
+    if last_match:
+        day_name = last_match.group(1)
+        if day_name in weekdays:
+            target_weekday = weekdays[day_name]
+            current_weekday = base_date.weekday()
+            days_behind = (current_weekday - target_weekday) % 7
+            if days_behind == 0:
+                days_behind = 7  # "last monday" on a monday means last week
+            return base_date - timedelta(days=days_behind)
+    
+    # Check for "this <weekday>"
+    this_match = re.match(r'^this\s+(\w+)$', text_lower)
+    if this_match:
+        day_name = this_match.group(1)
+        if day_name in weekdays:
+            target_weekday = weekdays[day_name]
+            current_weekday = base_date.weekday()
+            days_diff = target_weekday - current_weekday
+            return base_date + timedelta(days=days_diff)
+    
+    return None
+
+def parse_relative_time(text: str, base_datetime: datetime) -> Optional[datetime]:
+    """
+    Parse relative time expressions like 'in 2 hours', '3 days ago'.
+    Returns None if no match found.
+    """
+    text_lower = text.lower().strip()
+    
+    # Pattern for "in X units" (future)
+    in_pattern = re.match(r'^in\s+(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week|month)s?$', text_lower)
+    if in_pattern:
+        amount = float(in_pattern.group(1))
+        unit = in_pattern.group(2)
+        
+        if unit == 'second':
+            delta = timedelta(seconds=amount)
+        elif unit == 'minute':
+            delta = timedelta(minutes=amount)
+        elif unit == 'hour':
+            delta = timedelta(hours=amount)
+        elif unit == 'day':
+            delta = timedelta(days=amount)
+        elif unit == 'week':
+            delta = timedelta(weeks=amount)
+        elif unit == 'month':
+            # Approximate: 30 days per month
+            delta = timedelta(days=amount * 30)
+        else:
+            return None
+            
+        return base_datetime + delta
+    
+    # Pattern for "X units ago" (past)
+    ago_pattern = re.match(r'^(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week|month)s?\s+ago$', text_lower)
+    if ago_pattern:
+        amount = float(ago_pattern.group(1))
+        unit = ago_pattern.group(2)
+        
+        if unit == 'second':
+            delta = timedelta(seconds=amount)
+        elif unit == 'minute':
+            delta = timedelta(minutes=amount)
+        elif unit == 'hour':
+            delta = timedelta(hours=amount)
+        elif unit == 'day':
+            delta = timedelta(days=amount)
+        elif unit == 'week':
+            delta = timedelta(weeks=amount)
+        elif unit == 'month':
+            # Approximate: 30 days per month
+            delta = timedelta(days=amount * 30)
+        else:
+            return None
+            
+        return base_datetime - delta
+    
+    return None
+
+def parse_time_of_day(text: str, base_date: datetime) -> Optional[datetime]:
+    """
+    Parse time of day expressions like '3pm', '15:30', 'noon', 'midnight'.
+    Returns None if no match found.
+    """
+    text_lower = text.lower().strip()
+    
+    # Special cases
+    if text_lower == 'noon':
+        return base_date.replace(hour=12, minute=0, second=0, microsecond=0)
+    elif text_lower == 'midnight':
+        return base_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Pattern for time like "3pm", "3:30pm", "15:30"
+    # 12-hour format with am/pm
+    time_12h = re.match(r'^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$', text_lower)
+    if time_12h:
+        hour = int(time_12h.group(1))
+        minute = int(time_12h.group(2) or 0)
+        ampm = time_12h.group(3)
+        
+        if hour < 1 or hour > 12:
+            return None
+        if minute < 0 or minute > 59:
+            return None
+            
+        if ampm == 'pm' and hour != 12:
+            hour += 12
+        elif ampm == 'am' and hour == 12:
+            hour = 0
+            
+        return base_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # 24-hour format
+    time_24h = re.match(r'^(\d{1,2}):(\d{2})$', text_lower)
+    if time_24h:
+        hour = int(time_24h.group(1))
+        minute = int(time_24h.group(2))
+        
+        if hour < 0 or hour > 23:
+            return None
+        if minute < 0 or minute > 59:
+            return None
+            
+        return base_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    return None
 
 @mcp.tool()
 def current_datetime(timezone: str = "America/New_York") -> str:
@@ -610,6 +782,141 @@ def format_duration(
         return f"Error: Invalid input. Seconds must be a number. {str(e)}"
     except Exception as e:
         return f"Error formatting duration: {str(e)}"
+
+@mcp.tool()
+def parse_natural_time(
+    expression: str,
+    reference_time: Optional[str] = None,
+    timezone: str = "America/New_York"
+) -> Dict[str, str]:
+    """
+    Parse natural language time expressions into standard timestamps.
+    
+    Supports expressions like:
+    - Relative days: "today", "tomorrow", "yesterday"
+    - Weekdays: "next tuesday", "last friday", "this monday"
+    - Relative time: "in 3 hours", "2 days ago", "in 30 minutes"
+    - Time of day: "3pm", "15:30", "noon", "midnight"
+    - Combined: "tomorrow at 3pm", "next monday at noon"
+    
+    Args:
+        expression: Natural language time expression
+        reference_time: Reference timestamp for relative calculations (defaults to now)
+        timezone: Timezone for calculations
+    
+    Returns:
+        Dictionary containing:
+        - timestamp: Parsed timestamp in format "YYYY-MM-DD HH:MM:SS"
+        - iso: ISO 8601 format
+        - description: Human-readable description
+        - confidence: Parsing confidence ("high", "medium", "low")
+    """
+    try:
+        tz = pytz.timezone(timezone)
+        
+        # Get reference time
+        if reference_time:
+            ref_dt = parse_standard_timestamp(reference_time, timezone)
+        else:
+            ref_dt = datetime.now(tz)
+        
+        expression = expression.strip()
+        
+        # Try to parse the expression
+        result_dt = None
+        confidence = "high"
+        
+        # First check if it's already a standard timestamp
+        try:
+            result_dt = parse_standard_timestamp(expression, timezone)
+        except ValueError:
+            pass
+        
+        # Try relative time expressions ("in 2 hours", "3 days ago")
+        if result_dt is None:
+            result_dt = parse_relative_time(expression, ref_dt)
+        
+        # Try relative day expressions ("tomorrow", "next tuesday")
+        if result_dt is None:
+            day_dt = parse_relative_day(expression, ref_dt)
+            if day_dt:
+                # Keep the time from reference if only day was specified
+                result_dt = day_dt.replace(
+                    hour=ref_dt.hour,
+                    minute=ref_dt.minute,
+                    second=ref_dt.second,
+                    microsecond=ref_dt.microsecond
+                )
+        
+        # Try time of day expressions ("3pm", "noon")
+        if result_dt is None:
+            result_dt = parse_time_of_day(expression, ref_dt)
+        
+        # Try combined expressions ("tomorrow at 3pm")
+        if result_dt is None:
+            # Split on common prepositions
+            for prep in [' at ', ' @ ']:
+                if prep in expression.lower():
+                    parts = expression.lower().split(prep, 1)
+                    if len(parts) == 2:
+                        day_part, time_part = parts
+                        
+                        # Parse the day part
+                        day_dt = parse_relative_day(day_part, ref_dt)
+                        if day_dt:
+                            # Parse the time part
+                            time_dt = parse_time_of_day(time_part, day_dt)
+                            if time_dt:
+                                result_dt = time_dt
+                                break
+        
+        # If we still couldn't parse it, try some fallback patterns
+        if result_dt is None:
+            confidence = "low"
+            # Could add more sophisticated parsing here
+            return {
+                "error": f"Could not parse expression: '{expression}'",
+                "timestamp": "",
+                "iso": "",
+                "description": "Unable to parse expression",
+                "confidence": confidence
+            }
+        
+        # Generate description
+        # Use reference time for relative descriptions, not current time
+        days_diff = (result_dt.date() - ref_dt.date()).days
+        
+        if days_diff == 0:
+            day_desc = "today"
+        elif days_diff == 1:
+            day_desc = "tomorrow"
+        elif days_diff == -1:
+            day_desc = "yesterday"
+        elif days_diff > 1 and days_diff <= 7:
+            day_desc = f"next {result_dt.strftime('%A')}"
+        elif days_diff < -1 and days_diff >= -7:
+            day_desc = f"last {result_dt.strftime('%A')}"
+        else:
+            day_desc = result_dt.strftime("%B %d, %Y")
+        
+        time_desc = result_dt.strftime("%I:%M %p").lstrip("0")
+        description = f"{day_desc} at {time_desc}"
+        
+        return {
+            "timestamp": result_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "iso": result_dt.isoformat(),
+            "description": description,
+            "confidence": confidence
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Error parsing natural language time: {str(e)}",
+            "timestamp": "",
+            "iso": "",
+            "description": "Error parsing expression",
+            "confidence": "low"
+        }
 
 if __name__ == "__main__":
     import asyncio
