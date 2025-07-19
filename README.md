@@ -140,6 +140,26 @@ Formats durations in various styles for different contexts.
 # style="minimal": "2:30:15"
 ```
 
+#### `parse_natural_time(expression, reference_time=None)`
+Parses natural language time expressions into standard timestamps.
+
+```python
+# Example response for "tomorrow at 3pm":
+{
+    "timestamp": "2024-01-16 15:00:00",
+    "iso": "2024-01-16T15:00:00-05:00",
+    "description": "tomorrow at 3:00 PM",
+    "confidence": "high"
+}
+```
+
+Supported expressions:
+- **Relative days**: "today", "tomorrow", "yesterday"
+- **Weekdays**: "next tuesday", "last friday", "this monday"
+- **Relative time**: "in 3 hours", "2 days ago", "in 30 minutes"
+- **Time of day**: "3pm", "15:30", "noon", "midnight"
+- **Combined**: "tomorrow at 3pm", "next monday at noon"
+
 ## 💡 Example Conversations
 
 ### Basic Time Awareness
@@ -206,7 +226,7 @@ This strict formatting prevents ambiguity and ensures reliable calculations.
 - [ ] Create browser extension for local development
 - [ ] Add configurable activity patterns per user
 - [ ] Support for calendar integration
-- [ ] Natural language time parsing ("next Tuesday", "in 3 hours")
+- [x] Natural language time parsing ("next Tuesday", "in 3 hours")
 
 ## 🤝 Contributing
 
