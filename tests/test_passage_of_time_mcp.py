@@ -5,24 +5,39 @@ from unittest.mock import patch, MagicMock
 import sys
 import os
 
-# Import the actual implementation without mocking FastMCP
-# We'll extract the raw functions from the decorated versions
+# Import the actual implementation with a mock that mirrors REAL FastMCP.
+#
+# IMPORTANT: real fastmcp's @mcp.tool() replaces the decorated function with a
+# FunctionTool object that is NOT callable; the runtime invokes the underlying
+# function via its `.fn` attribute. Our mock reproduces that exactly so the test
+# suite catches the class of bug where one tool calls another tool's *decorated*
+# version directly (which raises "'FunctionTool' object is not callable" in prod
+# but would silently pass against a pass-through mock).
 
-# First, let's create a minimal FastMCP mock that preserves function behavior
+class FakeFunctionTool:
+    """Stand-in for fastmcp.FunctionTool: holds the raw fn, is NOT callable."""
+    def __init__(self, func):
+        self.fn = func
+        # Preserve metadata so tooling/introspection still works.
+        self.__name__ = getattr(func, "__name__", "tool")
+        self.__doc__ = getattr(func, "__doc__", None)
+    # Intentionally no __call__: calling the decorated tool must fail, just
+    # like real fastmcp, so internal tool-to-tool calls are caught in tests.
+
+
 class MockFastMCP:
     def __init__(self, **kwargs):
         pass
-    
+
     def tool(self):
         def decorator(func):
-            # Return the original function unchanged
-            return func
+            return FakeFunctionTool(func)
         return decorator
-    
+
     def run_sse_async(self, **kwargs):
         pass
 
-# Replace fastmcp with our mock that preserves function behavior
+# Replace fastmcp with our mock that mirrors real FunctionTool wrapping behavior
 sys.modules['fastmcp'] = MagicMock()
 sys.modules['fastmcp'].FastMCP = MockFastMCP
 
@@ -30,14 +45,15 @@ sys.modules['fastmcp'].FastMCP = MockFastMCP
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import passage_of_time_mcp
 
-# Extract the actual functions
-current_datetime = passage_of_time_mcp.current_datetime
-time_difference = passage_of_time_mcp.time_difference
-time_since = passage_of_time_mcp.time_since
-parse_timestamp = passage_of_time_mcp.parse_timestamp
-add_time = passage_of_time_mcp.add_time
-timestamp_context = passage_of_time_mcp.timestamp_context
-format_duration = passage_of_time_mcp.format_duration
+# Extract the underlying functions via `.fn`, exactly how the MCP runtime calls
+# them. (The module-level attributes are FakeFunctionTool objects, not callables.)
+current_datetime = passage_of_time_mcp.current_datetime.fn
+time_difference = passage_of_time_mcp.time_difference.fn
+time_since = passage_of_time_mcp.time_since.fn
+parse_timestamp = passage_of_time_mcp.parse_timestamp.fn
+add_time = passage_of_time_mcp.add_time.fn
+timestamp_context = passage_of_time_mcp.timestamp_context.fn
+format_duration = passage_of_time_mcp.format_duration.fn
 
 
 class TestCurrentDatetime:
@@ -409,6 +425,36 @@ class TestIntegration:
         assert context["time_of_day"] == "morning"  # 9 AM is in the morning range
         assert context["is_business_hours"] is True
         assert context["typical_activity"] == "work_time"
+
+
+# Regression tests for the "'FunctionTool' object is not callable" bug.
+# time_since used to call the @mcp.tool()-decorated time_difference directly,
+# which is a FunctionTool (not callable) under real fastmcp. These guard against
+# any tool internally calling another tool's decorated version.
+class TestFunctionToolRegression:
+    def test_mock_mirrors_real_fastmcp(self):
+        """Sanity check: decorated tools are non-callable FunctionTool stand-ins."""
+        assert isinstance(
+            passage_of_time_mcp.time_difference, FakeFunctionTool
+        )
+        assert not callable(passage_of_time_mcp.time_difference)
+        # The runtime-invocable implementation lives on `.fn`.
+        assert callable(passage_of_time_mcp.time_difference.fn)
+
+    @patch('passage_of_time_mcp.datetime')
+    def test_time_since_does_not_call_decorated_tool(self, mock_datetime):
+        """time_since must not raise / surface a FunctionTool-not-callable error."""
+        real_datetime = datetime
+        mock_datetime.now = MagicMock()
+        mock_datetime.strptime = real_datetime.strptime
+        tz = pytz.timezone("America/New_York")
+        mock_datetime.now.return_value = real_datetime(2024, 1, 10, 15, 0, 0, tzinfo=tz)
+
+        result = time_since("2024-01-10 14:00:00", timezone="America/New_York")
+
+        assert "error" not in result, result
+        assert "not callable" not in str(result)
+        assert abs(result["seconds"] - 3600) < 60
 
 
 if __name__ == "__main__":
