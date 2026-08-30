@@ -186,6 +186,8 @@ The server defaults to `America/New_York` but supports all standard timezone nam
 - `Asia/Tokyo`
 - etc.
 
+You can customise the default timezone using the DEFAULT_TIMEZONE environment variable.
+
 ### Timestamp Formats
 All timestamps must use one of these formats:
 - Full: `YYYY-MM-DD HH:MM:SS` (e.g., "2024-01-15 14:30:45")
@@ -202,7 +204,6 @@ This strict formatting prevents ambiguity and ensures reliable calculations.
 
 ### Roadmap
 - [ ] Migrate to modern `http-stream` transport
-- [ ] Add Docker support for easier deployment
 - [ ] Create browser extension for local development
 - [ ] Add configurable activity patterns per user
 - [ ] Support for calendar integration
@@ -295,7 +296,7 @@ INFO:     34.162.142.92:0 - "POST /messages/?session_id=e21108cecbf646ffb7effe14
 INFO:     34.162.142.92:0 - "POST /messages/?session_id=e21108cecbf646ffb7effe14dd856b3d HTTP/1.1" 202 Accepted
 ```
 
-Eventually, you will want to deploy this MCP server to a cloud provider such as Render.com, so your LLM doesn't have to contend with the unreliable nature of your local machine.
+Eventually, you will want to deploy this MCP server to a cloud provider such as Render.com or Sliplane.io, so your LLM doesn't have to contend with the unreliable nature of your local machine.
 
 ## 📝 License
 
