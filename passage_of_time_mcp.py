@@ -85,30 +85,19 @@ def current_datetime(timezone: str = "America/New_York") -> str:
     except pytz.exceptions.UnknownTimeZoneError:
         return f"Error: Unknown timezone '{timezone}'. Please use a valid timezone name like 'UTC', 'US/Pacific', or 'Europe/London'."
 
-@mcp.tool()
-def time_difference(
-    timestamp1: str, 
-    timestamp2: str, 
+def _time_difference(
+    timestamp1: str,
+    timestamp2: str,
     unit: Literal["auto", "seconds", "minutes", "hours", "days"] = "auto",
     timezone: str = "America/New_York"
 ) -> Dict[str, Union[int, float, str, bool]]:
     """
-    Calculate the time difference between two timestamps.
-    
-    Timestamps must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
-    
-    Args:
-        timestamp1: First timestamp (earlier time expected)
-        timestamp2: Second timestamp (later time expected)
-        unit: Desired unit for the result. "auto" provides multiple formats
-        timezone: Timezone for parsing ambiguous timestamps
-    
-    Returns:
-        Dictionary containing:
-        - seconds: Total difference in seconds
-        - formatted: Human-readable format (e.g., "3 hours, 10 minutes")
-        - requested_unit: Difference in the requested unit (if not "auto")
-        - is_negative: Boolean indicating if timestamp1 > timestamp2
+    Core implementation of time_difference.
+
+    Kept as a plain (undecorated) function so other tools can call it
+    internally. The @mcp.tool() decorator wraps a function in a FunctionTool
+    object, which is not callable, so tools must never call each other's
+    decorated versions directly.
     """
     try:
         dt1 = parse_standard_timestamp(timestamp1, timezone)
@@ -177,6 +166,33 @@ def time_difference(
         }
 
 @mcp.tool()
+def time_difference(
+    timestamp1: str,
+    timestamp2: str,
+    unit: Literal["auto", "seconds", "minutes", "hours", "days"] = "auto",
+    timezone: str = "America/New_York"
+) -> Dict[str, Union[int, float, str, bool]]:
+    """
+    Calculate the time difference between two timestamps.
+
+    Timestamps must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+
+    Args:
+        timestamp1: First timestamp (earlier time expected)
+        timestamp2: Second timestamp (later time expected)
+        unit: Desired unit for the result. "auto" provides multiple formats
+        timezone: Timezone for parsing ambiguous timestamps
+
+    Returns:
+        Dictionary containing:
+        - seconds: Total difference in seconds
+        - formatted: Human-readable format (e.g., "3 hours, 10 minutes")
+        - requested_unit: Difference in the requested unit (if not "auto")
+        - is_negative: Boolean indicating if timestamp1 > timestamp2
+    """
+    return _time_difference(timestamp1, timestamp2, unit, timezone)
+
+@mcp.tool()
 def time_since(
     timestamp: str,
     timezone: str = "America/New_York"
@@ -201,8 +217,9 @@ def time_since(
         now = datetime.now(tz)
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
         
-        # Use time_difference to calculate
-        diff = time_difference(timestamp, now_str, unit="auto", timezone=timezone)
+        # Call the plain helper, NOT the @mcp.tool()-decorated time_difference
+        # (a FunctionTool object), which is not callable.
+        diff = _time_difference(timestamp, now_str, unit="auto", timezone=timezone)
         
         # Check if time_difference returned an error
         if "error" in diff:
