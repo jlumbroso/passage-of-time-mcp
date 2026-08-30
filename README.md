@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/jlumbroso-passage-of-time-mcp-badge.png)](https://mseep.ai/app/jlumbroso-passage-of-time-mcp)
+
 # "Passage of Time" Model Context Protocol (MCP) Server 🕐
 
 An MCP server that gives language models temporal awareness and time calculation abilities. Teaching LLMs the significance of the passage of time through collaborative tool development.
